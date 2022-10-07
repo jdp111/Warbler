@@ -73,7 +73,8 @@ def signup():
                 username=form.username.data,
                 password=form.password.data,
                 email=form.email.data,
-                image_url=form.image_url.data or User.image_url.default.arg
+                image_url=form.image_url.data or User.image_url.default.arg,
+                loc = form.location.data or None
             )
 
             db.session.commit()
