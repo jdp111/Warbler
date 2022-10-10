@@ -332,7 +332,7 @@ def homepage():
         user = g.user
         listOfFollowed = user.following
         UIDs = [currUser.id for currUser in listOfFollowed]
-
+        UIDs.append(user.id)
         messages = (Message
                     .query
                     .filter(Message.user_id.in_(UIDs))
