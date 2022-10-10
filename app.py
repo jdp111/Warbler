@@ -3,8 +3,8 @@ from flask import Flask, render_template, jsonify, request, flash, redirect, ses
 from flask_debugtoolbar import DebugToolbarExtension
 from sqlalchemy.exc import IntegrityError
 
-from forms import UserAddForm, LoginForm, MessageForm
-from models import db, connect_db, User, Message
+from forms import UserAddForm, LoginForm, MessageForm, UserEditForm
+from models import db, connect_db, User, Message, Follows
 
 CURR_USER_KEY = "curr_user"
 
@@ -12,8 +12,8 @@ app = Flask(__name__)
 
 # Get DB_URI from environ variable (useful for production/testing) or,
 # if not set there, use development local db.
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    os.environ.get('DATABASE_URL', 'postgresql:///warbler'))
+
+app.config['SQLALCHEMY_DATABASE_URI'] = (os.environ.get('DATABASE_URL', 'postgresql:///warbler'))
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = False
@@ -23,10 +23,8 @@ toolbar = DebugToolbarExtension(app)
 
 connect_db(app)
 
-
 ##############################################################################
 # User signup/login/logout
-
 
 @app.before_request
 def add_user_to_g():
@@ -55,11 +53,8 @@ def do_logout():
 @app.route('/signup', methods=["GET", "POST"])
 def signup():
     """Handle user signup.
-
     Create new user and add to DB. Redirect to home page.
-
     If form not valid, present form.
-
     If the there already is a user with that username: flash message
     and re-present form.
     """
@@ -212,10 +207,42 @@ def stop_following(follow_id):
     return redirect(f"/users/{g.user.id}/following")
 
 
+from flask_bcrypt import Bcrypt
+bcrypt = Bcrypt()
 @app.route('/users/profile', methods=["GET", "POST"])
 def profile():
     """Update profile for current user."""
 
+    if not g.user:
+        flash("Access unauthorized.", "danger")
+        return redirect("/")
+        
+    currUser = User.query.get_or_404(session[CURR_USER_KEY])
+    form = UserEditForm(username = currUser.username, email = currUser.email, bio = currUser.bio)
+
+    if form.validate_on_submit():
+
+        enteredPW = form.password.data
+        validUser = User.authenticate(username = currUser.username, password = enteredPW)
+        
+        if not validUser:
+            flash('Incorrect Password', "danger")
+            return redirect('/')
+
+        validUser.username=form.username.data
+        validUser.email=form.email.data
+        validUser.bio=form.bio.data
+
+        if form.image_url.data:
+            validUser.image_url=form.image_url.data
+        
+        if form.header_image_url.data:
+            validUser.header_image_url = form.header_image_url.data
+
+        db.session.commit()
+        return redirect(f"/users/{currUser.id}")
+
+    return render_template('/users/edit.html', form = form)
     # IMPLEMENT THIS
 
 
@@ -234,14 +261,12 @@ def delete_user():
 
     return redirect("/signup")
 
-
 ##############################################################################
 # Messages routes:
 
 @app.route('/messages/new', methods=["GET", "POST"])
 def messages_add():
     """Add a message:
-
     Show form if GET. If valid, update message and redirect to user page.
     """
 
@@ -283,22 +308,25 @@ def messages_destroy(message_id):
 
     return redirect(f"/users/{g.user.id}")
 
-
 ##############################################################################
 # Homepage and error pages
-
 
 @app.route('/')
 def homepage():
     """Show homepage:
-
     - anon users: no messages
     - logged in: 100 most recent messages of followed_users
     """
+    
 
     if g.user:
+        user = User.query.get_or_404(session[CURR_USER_KEY])
+        listOfFollowed = user.following
+        UIDs = [currUser.id for currUser in listOfFollowed]
+
         messages = (Message
                     .query
+                    .filter(Message.user_id.in_(UIDs))
                     .order_by(Message.timestamp.desc())
                     .limit(100)
                     .all())
@@ -319,7 +347,6 @@ def homepage():
 @app.after_request
 def add_header(req):
     """Add non-caching headers on every request."""
-
     req.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     req.headers["Pragma"] = "no-cache"
     req.headers["Expires"] = "0"

@@ -134,11 +134,10 @@ class User(db.Model):
     @classmethod
     def signup(cls, username, email, password, image_url, loc):
         """Sign up user.
-
         Hashes password and adds user to system.
         """
         
-        hashed_pwd = bcrypt.generate_password_hash(password).decode('UTF-8')
+        hashed_pwd = bcrypt.generate_password_hash(password).decode('utf-8')
 
         user = User(
             username=username,
@@ -165,8 +164,9 @@ class User(db.Model):
         user = cls.query.filter_by(username=username).first()
 
         if user:
-            is_auth = bcrypt.check_password_hash(user.password, password)
-            if is_auth:
+            hashW = bcrypt.check_password_hash(user.password, password)
+
+            if hashW:
                 return user
 
         return False
