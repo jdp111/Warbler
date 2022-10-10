@@ -4,7 +4,7 @@ from flask_debugtoolbar import DebugToolbarExtension
 from sqlalchemy.exc import IntegrityError
 
 from forms import UserAddForm, LoginForm, MessageForm, UserEditForm
-from models import db, connect_db, User, Message, Follows
+from models import db, connect_db, User, Message, Follows, Likes
 
 CURR_USER_KEY = "curr_user"
 
@@ -17,7 +17,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = (os.environ.get('DATABASE_URL', 'postgre
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = False
-app.config['DEBUG_TB_INTERCEPT_REDIRECTS'] = True
+app.config['DEBUG_TB_INTERCEPT_REDIRECTS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', "it's a secret")
 toolbar = DebugToolbarExtension(app)
 
@@ -177,6 +177,15 @@ def users_followers(user_id):
     return render_template('users/followers.html', user=user)
 
 
+@app.route('/users/<int:userID>/likes')
+def users_likes(userID):
+    likes = Likes.query.filter(Likes.user_id == userID)
+    messageList = [like.message_id for like in likes]
+    likedMSG = Message.query.filter(Message.id.in_(messageList)).all()
+    return render_template('users/liked.html', liked = likedMSG, user = g.user)
+
+
+
 @app.route('/users/follow/<int:follow_id>', methods=['POST'])
 def add_follow(follow_id):
     """Add a follow for the currently-logged-in user."""
@@ -320,7 +329,7 @@ def homepage():
     
 
     if g.user:
-        user = User.query.get_or_404(session[CURR_USER_KEY])
+        user = g.user
         listOfFollowed = user.following
         UIDs = [currUser.id for currUser in listOfFollowed]
 
@@ -330,13 +339,35 @@ def homepage():
                     .order_by(Message.timestamp.desc())
                     .limit(100)
                     .all())
+        
+        likes = Likes.query.filter(user.id == Likes.user_id ).all()
+        likedMSG = [like.message_id for like in likes]
 
-        return render_template('home.html', messages=messages)
+        return render_template('home.html', messages=messages, likes = likedMSG)
 
     else:
         return render_template('home-anon.html')
 
 
+@app.route('/users/add_like/<int:messageID>', methods = ['POST'])
+def likePost(messageID):
+    if not g.user:
+        flash("operation not allowed", "danger")
+        return redirect('/login')
+
+    userID = session[CURR_USER_KEY]
+    liked = Likes.query.filter((Likes.user_id == userID) & (Likes.message_id == messageID)).one_or_none()
+
+    if liked:
+        db.session.delete(liked)
+    else:
+        newLike = Likes(user_id = userID, message_id = messageID)
+        db.session.add(newLike)
+    db.session.commit()
+    return redirect('/')
+
+
+    
 ##############################################################################
 # Turn off all caching in Flask
 #   (useful for dev; in production, this kind of stuff is typically
@@ -352,3 +383,4 @@ def add_header(req):
     req.headers["Expires"] = "0"
     req.headers['Cache-Control'] = 'public, max-age=0'
     return req
+
